@@ -1,0 +1,936 @@
+<!--
+    undo doesn't work right, it's not removing what I just drew, I want it to remove whatever I'm drawing first
+    
+    the pressure should start at LOW and only increase if I move the slider righ
+ 
+    Human Intervention:
+        - Added "use strict";
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slidus 0.3</title>
+    <style>
+        :root {
+            --bg-color: #1e1e24;
+            --panel-bg: #2b2b36;
+            --text-color: #e0e0e0;
+            --accent-color: #4a90e2;
+            --accent-hover: #357abd;
+            --danger-color: #e74c3c;
+            --border-color: #444450;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            user-select: none;
+        }
+
+        #app {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        #bg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        body.drag-over #bg-layer {
+            box-shadow: inset 0 0 0 4px var(--accent-color);
+        }
+        
+        body.drag-over::after {
+            content: "Drop Image to Set Background";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 100;
+            border: 1px solid var(--accent-color);
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            z-index: 1; 
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        body.mode-select #canvas {
+            cursor: default;
+        }
+        
+        body.mode-select .path-element {
+            cursor: move;
+        }
+        
+        body.mode-select .path-element:hover {
+            stroke-opacity: 0.8;
+        }
+
+        .handle {
+            cursor: grab;
+            fill: #fff;
+            stroke: var(--accent-color);
+            stroke-width: 2px;
+            transition: r 0.1s ease;
+        }
+
+        .handle:hover {
+            r: 6px;
+            fill: var(--accent-color);
+        }
+
+        .handle:active {
+            cursor: grabbing;
+        }
+
+        .toolbar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: var(--panel-bg);
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            border: 1px solid var(--border-color);
+            z-index: 10; 
+            min-width: 220px;
+        }
+
+        .toolbar-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toolbar-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        button {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: #3e3e4a;
+            color: var(--text-color);
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background-color: #50505e;
+        }
+
+        button.active {
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: bold;
+        }
+
+        button.danger {
+            background-color: rgba(231, 76, 60, 0.2);
+            color: var(--danger-color);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
+
+        button.danger:hover {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        button.export-btn {
+            background-color: #27ae60;
+            color: white;
+            font-weight: 600;
+        }
+        button.export-btn:hover {
+            background-color: #219150;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 36px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        #toast {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0,0,0,0.85);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 20;
+        }
+        #toast.visible {
+            opacity: 1;
+        }
+        
+        .value-display {
+            color: var(--accent-color);
+            font-weight: normal;
+        }
+
+        .status-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-top: 8px;
+            line-height: 1.4;
+            border-top: 1px solid var(--border-color);
+            padding-top: 8px;
+        }
+    </style>
+</head>
+<body class="mode-draw">
+
+    <div id="app">
+        <!-- Background Layer -->
+        <div id="bg-layer"></div>
+
+        <nav class="toolbar">
+            <div class="toolbar-group">
+                <div class="toolbar-label">Tools</div>
+                <div class="button-row">
+                    <button id="btn-draw" class="active">Draw</button>
+                    <button id="btn-select">Select / Edit</button>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">
+                    <span>Color</span>
+                </div>
+                <input type="color" id="color-picker" value="#4a90e2">
+            </div>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">
+                    <span>Width</span>
+                    <span id="width-val" class="value-display">4px</span>
+                </div>
+                <input type="range" id="width-slider" min="1" max="20" value="4">
+            </div>
+            
+            <div class="toolbar-group">
+                <div class="toolbar-label">
+                    <span>Precision</span>
+                    <span id="precision-val" class="value-display">Low</span>
+                </div>
+                <input type="range" id="precision-slider" min="0" max="50" value="0">
+            </div>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">Actions</div>
+                <button id="btn-export" class="export-btn">Export SVG</button>
+                <button id="btn-delete-selected" class="danger" style="display: none;">Delete Selected</button>
+                <button id="btn-clear">Clear Canvas</button>
+            </div>
+            
+            <div class="status-text" id="status-text">
+                Ready. <br>
+                <b>Draw:</b> Move mouse to sketch.<br>
+                <b>Select:</b> Click to select, drag handles.<br>
+                <b>Undo:</b> Z (Cancels current stroke)<br>
+                <b>Switch Mode:</b> SPACE
+            </div>
+        </nav>
+
+        <svg id="canvas">
+            <defs></defs>
+            <g id="layer-paths"></g>
+            <g id="layer-handles"></g>
+        </svg>
+
+        <div id="toast">Message</div>
+    </div>
+
+    <script>
+        "use strict";
+        const AppState = {
+            mode: 'draw', 
+            isDrawing: false,
+            isDraggingPath: false,
+            isDraggingHandle: false,
+            
+            currentPathIndex: -1,
+            selectedPathIndex: -1,
+            activeHandleIndex: -1,
+            
+            dragStartMouse: { x: 0, y: 0 },
+            
+            paths: [], 
+            styles: {
+                color: '#4a90e2',
+                width: 4,
+                drawThreshold: 20 // Start at High Threshold (Low Precision)
+            }
+        };
+
+        const History = {
+            undoStack: [],
+            redoStack: [],
+            limit: 50
+        };
+
+        const UI = {
+            app: document.getElementById('app'),
+            bgLayer: document.getElementById('bg-layer'),
+            canvas: document.getElementById('canvas'),
+            layerPaths: document.getElementById('layer-paths'),
+            layerHandles: document.getElementById('layer-handles'),
+            btnDraw: document.getElementById('btn-draw'),
+            btnSelect: document.getElementById('btn-select'),
+            btnExport: document.getElementById('btn-export'),
+            btnDelete: document.getElementById('btn-delete-selected'),
+            btnClear: document.getElementById('btn-clear'),
+            colorPicker: document.getElementById('color-picker'),
+            widthSlider: document.getElementById('width-slider'),
+            precisionSlider: document.getElementById('precision-slider'),
+            widthVal: document.getElementById('width-val'),
+            precisionVal: document.getElementById('precision-val'),
+            statusText: document.getElementById('status-text'),
+            toast: document.getElementById('toast'),
+            body: document.body
+        };
+
+        // --- History Management ---
+
+        function saveState() {
+            const snapshot = JSON.parse(JSON.stringify(AppState.paths));
+            History.undoStack.push(snapshot);
+            if (History.undoStack.length > History.limit) History.undoStack.shift();
+            History.redoStack = [];
+        }
+
+        function undo() {
+            // PRIORITY 1: If we are currently drawing, cancel the stroke immediately
+            if (AppState.isDrawing) {
+                // Remove the data we just added to the paths array
+                AppState.paths.pop();
+                
+                // Remove the visual element we just added to the DOM
+                const currentEl = UI.layerPaths.lastElementChild;
+                if (currentEl) currentEl.remove();
+                
+                // Reset drawing state
+                AppState.isDrawing = false;
+                AppState.currentPathIndex = -1;
+                
+                showToast("Cancelled Stroke");
+                return; // Do not touch history stacks
+            }
+
+            // PRIORITY 2: Standard Undo for finished strokes
+            if (History.undoStack.length === 0) return;
+            History.redoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const previousState = History.undoStack.pop();
+            AppState.paths = previousState;
+            
+            if (AppState.selectedPathIndex >= AppState.paths.length) {
+                AppState.selectedPathIndex = -1;
+            }
+
+            rebuildCanvas();
+            showToast("Undo");
+        }
+
+        function redo() {
+            // If we are drawing, ignore redo (or we could implement cancel+redo, but usually cancel is enough)
+            if (AppState.isDrawing) return;
+
+            if (History.redoStack.length === 0) return;
+            History.undoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const nextState = History.redoStack.pop();
+            AppState.paths = nextState;
+            
+            if (AppState.selectedPathIndex >= AppState.paths.length) {
+                AppState.selectedPathIndex = -1;
+            }
+
+            rebuildCanvas();
+            showToast("Redo");
+        }
+
+        function rebuildCanvas() {
+            UI.layerPaths.innerHTML = '';
+            UI.layerHandles.innerHTML = '';
+
+            AppState.paths.forEach((pathData, index) => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("class", "path-element");
+                pathEl.setAttribute("stroke", pathData.color);
+                pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("fill", "none");
+                pathEl.setAttribute("stroke-linecap", "round");
+                pathEl.setAttribute("stroke-linejoin", "round");
+                pathEl.dataset.index = index;
+                UI.layerPaths.appendChild(pathEl);
+                updatePathD(index);
+            });
+
+            if (AppState.selectedPathIndex !== -1 && AppState.paths.length > 0) {
+                 if(AppState.selectedPathIndex < AppState.paths.length) {
+                    selectPath(AppState.selectedPathIndex);
+                 } else {
+                     selectPath(-1);
+                 }
+            } else {
+                selectPath(-1);
+            }
+        }
+
+        function getSVGPoint(clientX, clientY) {
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = clientX;
+            pt.y = clientY;
+            return pt.matrixTransform(UI.canvas.getScreenCTM().inverse());
+        }
+
+        function showToast(msg) {
+            UI.toast.textContent = msg;
+            UI.toast.classList.add('visible');
+            setTimeout(() => UI.toast.classList.remove('visible'), 2000);
+        }
+
+        function setStatus(msg) {
+            UI.statusText.innerHTML = msg;
+        }
+
+        // --- Drawing Logic (Move Only) ---
+
+        function startDrawing(x, y) {
+            AppState.isDrawing = true;
+            
+            const newPath = {
+                color: AppState.styles.color,
+                width: parseInt(AppState.styles.width),
+                points: [{ x, y }]
+            };
+            
+            AppState.paths.push(newPath);
+            AppState.currentPathIndex = AppState.paths.length - 1;
+
+            const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            pathEl.setAttribute("class", "path-element");
+            pathEl.setAttribute("stroke", newPath.color);
+            pathEl.setAttribute("stroke-width", newPath.width);
+            pathEl.setAttribute("fill", "none");
+            pathEl.setAttribute("stroke-linecap", "round");
+            pathEl.setAttribute("stroke-linejoin", "round");
+            pathEl.dataset.index = AppState.currentPathIndex;
+
+            UI.layerPaths.appendChild(pathEl);
+            updatePathD(AppState.currentPathIndex);
+        }
+
+        function drawMove(x, y) {
+            if (!AppState.isDrawing) return;
+            
+            const path = AppState.paths[AppState.currentPathIndex];
+            const lastPoint = path.points[path.points.length - 1];
+            
+            const dist = Math.hypot(x - lastPoint.x, y - lastPoint.y);
+            
+            if (dist > AppState.styles.drawThreshold) {
+                path.points.push({ x, y });
+                updatePathD(AppState.currentPathIndex);
+            }
+        }
+
+        function stopDrawing() {
+            if (AppState.isDrawing) {
+                AppState.isDrawing = false;
+                AppState.currentPathIndex = -1;
+                saveState();
+            }
+        }
+
+        function updatePathD(index) {
+            const pathData = AppState.paths[index];
+            if (!pathData || pathData.points.length === 0) return;
+
+            const d = pathData.points.reduce((acc, point, i) => {
+                return acc + (i === 0 ? `M ${point.x} ${point.y}` : ` L ${point.x} ${point.y}`);
+            }, "");
+
+            const pathEl = UI.layerPaths.children[index];
+            if (pathEl) {
+                pathEl.setAttribute("d", d);
+            }
+        }
+
+        // --- Selection / Editing ---
+
+        function selectPath(index) {
+            if (AppState.selectedPathIndex !== -1) {
+                const prevEl = UI.layerPaths.children[AppState.selectedPathIndex];
+                if (prevEl) prevEl.style.filter = "none";
+            }
+
+            AppState.selectedPathIndex = index;
+
+            if (index !== -1) {
+                const pathEl = UI.layerPaths.children[index];
+                const pathData = AppState.paths[index];
+                
+                pathEl.style.filter = "drop-shadow(0 0 4px var(--accent-color))";
+                
+                UI.widthSlider.value = pathData.width;
+                UI.widthVal.textContent = pathData.width + "px";
+                UI.colorPicker.value = pathData.color;
+
+                UI.btnDelete.style.display = "block";
+                setStatus("Path selected. Drag handles to edit.");
+                renderHandles(index);
+            } else {
+                UI.widthSlider.value = AppState.styles.width;
+                UI.widthVal.textContent = AppState.styles.width + "px";
+                UI.colorPicker.value = AppState.styles.color;
+                
+                UI.btnDelete.style.display = "none";
+                setStatus("Select Mode. Click path to select.");
+                clearHandles();
+            }
+        }
+
+        function clearHandles() {
+            UI.layerHandles.innerHTML = '';
+        }
+
+        function renderHandles(index) {
+            clearHandles();
+            const pathData = AppState.paths[index];
+            
+            pathData.points.forEach((point, i) => {
+                const handle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                handle.setAttribute("cx", point.x);
+                handle.setAttribute("cy", point.y);
+                handle.setAttribute("r", 4);
+                handle.setAttribute("class", "handle");
+                handle.dataset.handleIndex = i;
+                
+                handle.addEventListener('mousedown', (e) => {
+                    e.stopPropagation();
+                    startDraggingHandle(e, i);
+                });
+
+                UI.layerHandles.appendChild(handle);
+            });
+        }
+
+        function updateHandles(index) {
+            const pathData = AppState.paths[index];
+            const handles = UI.layerHandles.children;
+            
+            if (handles.length !== pathData.points.length) {
+                renderHandles(index);
+                return;
+            }
+
+            Array.from(handles).forEach((handle, i) => {
+                handle.setAttribute("cx", pathData.points[i].x);
+                handle.setAttribute("cy", pathData.points[i].y);
+            });
+        }
+
+        function startDraggingHandle(e, handleIndex) {
+            if (AppState.mode !== 'select') return;
+            AppState.isDraggingHandle = true;
+            AppState.activeHandleIndex = handleIndex;
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+        }
+
+        function startDraggingPath(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            AppState.isDraggingPath = true;
+            AppState.selectedPathIndex = pathIndex; 
+            selectPath(pathIndex); 
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+        }
+
+        function processDrag(x, y) {
+            if (AppState.isDraggingHandle) {
+                const pathData = AppState.paths[AppState.selectedPathIndex];
+                pathData.points[AppState.activeHandleIndex] = { x, y };
+                updatePathD(AppState.selectedPathIndex);
+                updateHandles(AppState.selectedPathIndex);
+            } 
+            else if (AppState.isDraggingPath) {
+                const dx = x - AppState.dragStartMouse.x;
+                const dy = y - AppState.dragStartMouse.y;
+                
+                const pathData = AppState.paths[AppState.selectedPathIndex];
+                pathData.points = pathData.points.map(p => ({
+                    x: p.x + dx,
+                    y: p.y + dy
+                }));
+                
+                AppState.dragStartMouse = { x, y };
+
+                updatePathD(AppState.selectedPathIndex);
+                updateHandles(AppState.selectedPathIndex);
+            }
+        }
+
+        function stopDrag() {
+            if (AppState.isDraggingHandle || AppState.isDraggingPath) {
+                AppState.isDraggingHandle = false;
+                AppState.isDraggingPath = false;
+                AppState.activeHandleIndex = -1;
+                saveState();
+            }
+        }
+
+        // --- Event Listeners ---
+
+        UI.btnDraw.addEventListener('click', () => {
+            setMode('draw');
+        });
+
+        UI.btnSelect.addEventListener('click', () => {
+            setMode('select');
+        });
+
+        function setMode(newMode) {
+            AppState.mode = newMode;
+            
+            if (newMode === 'draw') {
+                UI.body.className = 'mode-draw';
+                UI.btnDraw.classList.add('active');
+                UI.btnSelect.classList.remove('active');
+                selectPath(-1);
+                setStatus("Draw Mode: Move mouse to sketch.");
+            } else {
+                stopDrawing(); 
+                UI.body.className = 'mode-select';
+                UI.btnSelect.classList.add('active');
+                UI.btnDraw.classList.remove('active');
+                setStatus("Select Mode: Click to select/edit.");
+            }
+        }
+
+        // 1. MOUSE MOVE
+        window.addEventListener('mousemove', (e) => {
+            const pt = getSVGPoint(e.clientX, e.clientY);
+
+            if (AppState.mode === 'draw') {
+                if (!AppState.isDrawing) {
+                    startDrawing(pt.x, pt.y);
+                } else {
+                    drawMove(pt.x, pt.y);
+                }
+            } else {
+                if (AppState.isDraggingHandle || AppState.isDraggingPath) {
+                    processDrag(pt.x, pt.y);
+                }
+            }
+        });
+
+        // 2. MOUSE DOWN
+        UI.canvas.addEventListener('mousedown', (e) => {
+            if (AppState.mode === 'select') {
+                if (e.target.classList.contains('path-element')) {
+                    const index = parseInt(e.target.dataset.index);
+                    startDraggingPath(e, index);
+                } else {
+                    selectPath(-1);
+                }
+            }
+        });
+
+        // 3. MOUSE UP
+        window.addEventListener('mouseup', () => {
+            if (AppState.mode === 'draw') {
+                stopDrawing();
+            } else {
+                stopDrag();
+            }
+        });
+
+
+        // Key Listener
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+
+            // SPACE - Toggle Mode
+            if (e.code === 'Space') {
+                e.preventDefault(); // Stop default browser behavior (scrolling/toggling inputs)
+                if (AppState.mode === 'draw') {
+                    setMode('select');
+                    showToast("Select Mode");
+                } else {
+                    setMode('draw');
+                    showToast("Draw Mode");
+                }
+                return;
+            }
+
+            // Undo / Redo
+            if ((e.ctrlKey || e.metaKey) && key === 'z') {
+                undo();
+            } else if ((e.ctrlKey || e.metaKey) && key === 'y') {
+                redo();
+            } 
+            // Single keys Z and Y (Strict Mode requirement)
+            else if (key === 'z') {
+                undo();
+            } else if (key === 'y') {
+                redo();
+            }
+            // Delete
+            else if (key === 'delete' || key === 'backspace') {
+                if (AppState.selectedPathIndex !== -1) {
+                    deleteSelectedPath();
+                }
+            }
+        });
+
+        UI.widthSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            AppState.styles.width = val;
+            UI.widthVal.textContent = val + "px";
+            if (AppState.selectedPathIndex !== -1) {
+                const pathData = AppState.paths[AppState.selectedPathIndex];
+                pathData.width = val;
+                const pathEl = UI.layerPaths.children[AppState.selectedPathIndex];
+                if (pathEl) pathEl.setAttribute("stroke-width", val);
+            }
+        });
+
+        UI.widthSlider.addEventListener('change', () => {
+            if(AppState.selectedPathIndex !== -1) saveState();
+        });
+
+        UI.precisionSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            
+            // Slider goes 0 (Left) to 50 (Right)
+            // Logic: Left (0) = Low Precision (High Threshold), Right (50) = High Precision (Low Threshold)
+            // So Threshold must be HIGH at 0 and LOW at 50.
+            
+            let threshold = 20 - (val * 0.36);
+            
+            AppState.styles.drawThreshold = threshold;
+            
+            // Labels
+            let label = "Low";
+            if (val > 15) label = "Med";
+            if (val > 35) label = "High";
+            
+            UI.precisionVal.textContent = label;
+        });
+
+        UI.colorPicker.addEventListener('input', (e) => {
+            const val = e.target.value;
+            AppState.styles.color = val;
+            if (AppState.selectedPathIndex !== -1) {
+                const pathData = AppState.paths[AppState.selectedPathIndex];
+                pathData.color = val;
+                const pathEl = UI.layerPaths.children[AppState.selectedPathIndex];
+                if (pathEl) pathEl.setAttribute("stroke", val);
+            }
+        });
+        
+        UI.colorPicker.addEventListener('change', () => {
+            if(AppState.selectedPathIndex !== -1) saveState();
+        });
+
+        function deleteSelectedPath() {
+            if (AppState.selectedPathIndex === -1) return;
+            saveState();
+            
+            const pathEl = UI.layerPaths.children[AppState.selectedPathIndex];
+            if (pathEl) pathEl.remove();
+            
+            AppState.paths.splice(AppState.selectedPathIndex, 1);
+            
+            selectPath(-1);
+            clearHandles();
+            showToast("Path deleted");
+            
+            Array.from(UI.layerPaths.children).forEach((el, idx) => {
+                el.dataset.index = idx;
+            });
+        }
+
+        UI.btnDelete.addEventListener('click', deleteSelectedPath);
+
+        UI.btnClear.addEventListener('click', () => {
+            saveState();
+            AppState.paths = [];
+            UI.layerPaths.innerHTML = '';
+            UI.layerHandles.innerHTML = '';
+            selectPath(-1);
+            showToast("Canvas cleared");
+        });
+
+        // --- EXPORT FUNCTIONALITY ---
+
+        UI.btnExport.addEventListener('click', () => {
+            if (AppState.paths.length === 0) {
+                showToast("Nothing to export!");
+                return;
+            }
+
+            const svgContent = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svgContent.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svgContent.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
+            svgContent.setAttribute("width", window.innerWidth);
+            svgContent.setAttribute("height", window.innerHeight);
+
+            AppState.paths.forEach(pathData => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("stroke", pathData.color);
+                pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("fill", "none");
+                pathEl.setAttribute("stroke-linecap", "round");
+                pathEl.setAttribute("stroke-linejoin", "round");
+                
+                const d = pathData.points.reduce((acc, point, i) => {
+                    return acc + (i === 0 ? `M ${point.x.toFixed(1)} ${point.y.toFixed(1)}` : ` L ${point.x.toFixed(1)} ${point.y.toFixed(1)}`);
+                }, "");
+                pathEl.setAttribute("d", d);
+                
+                svgContent.appendChild(pathEl);
+            });
+
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(svgContent);
+
+            if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+                source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            }
+            if(!source.match(/^<svg[^>]+xmlns:xlink/)){
+                source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+            }
+
+            const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `sketch_${Date.now()}.svg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showToast("SVG Exported");
+        });
+
+        // --- Drag & Drop Background Logic ---
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            UI.app.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        UI.app.addEventListener('dragenter', () => {
+            document.body.classList.add('drag-over');
+        });
+
+        UI.app.addEventListener('dragleave', (e) => {
+            if (e.relatedTarget && !UI.app.contains(e.relatedTarget)) {
+                document.body.classList.remove('drag-over');
+            }
+        });
+
+        UI.app.addEventListener('drop', (e) => {
+            document.body.classList.remove('drag-over');
+
+            const dt = e.dataTransfer;
+            const files = dt.files;
+
+            if (files.length > 0) {
+                handleFiles(files);
+            }
+        });
+
+        function handleFiles(files) {
+            const file = files[0];
+            
+            if (!file.type.startsWith('image/')) {
+                showToast("Please drop an image file (JPG, PNG, etc).");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onloadend = function() {
+                const imgData = reader.result;
+                UI.bgLayer.style.backgroundImage = `url('${imgData}')`;
+                showToast("Background updated");
+            }
+        }
+
+        setStatus("Ready.");
+    </script>
+</body>
+</html>
