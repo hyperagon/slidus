@@ -1,0 +1,1166 @@
+<!--
+    Instead of making extra nodes make it porrible to drag the be<zier handles of a path section, do this only had 3 nodes.
+    
+    <svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1603 800"><path stroke="#4a90e2" stroke-width="4" stroke-opacity="1" fill="#ffffff" fill-opacity="0" stroke-linecap="round" stroke-linejoin="round" d="M 921.0 273.0 L 935.0 304.0 L 945.0 334.0 L 967.0 446.0 L 968.0 514.0 L 944.0 551.0 L 905.0 525.0 L 876.0 516.0 L 872.0 485.0"/></svg>
+
+    ok how about you keep it simple?
+    don't make a ton of nodes for a single curve.
+    
+    still too many how about 3 per curve.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slidu 0.8</title>
+    <style>
+        :root {
+            --bg-color: #1e1e24;
+            --panel-bg: #2b2b36;
+            --text-color: #e0e0e0;
+            --accent-color: #4a90e2;
+            --accent-hover: #357abd;
+            --danger-color: #e74c3c;
+            --border-color: #444450;
+            --toolbar-width: 260px;
+            --control-color: #e74c3c;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            user-select: none;
+        }
+
+        #app {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        #bg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.5;
+            transition: opacity 0.3s;
+        }
+
+        body.drag-over #bg-layer {
+            opacity: 1;
+            box-shadow: inset 0 0 0 5px var(--accent-color);
+        }
+        
+        body.drag-over::after {
+            content: "Drop Image to Set Background";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 100;
+            border: 2px solid var(--accent-color);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            z-index: 1; 
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        body.mode-draw #canvas {
+            cursor: crosshair;
+        }
+        body.mode-select #canvas {
+            cursor: default;
+        }
+        body.mode-select .path-element {
+            cursor: pointer;
+        }
+        body.mode-select .path-element:hover {
+            stroke-opacity: 0.8;
+        }
+
+        /* Handles */
+        .handle-group {
+            pointer-events: none; 
+        }
+        .handle-group > * {
+            pointer-events: auto;
+        }
+
+        /* Square Anchors (p0, p2) */
+        .handle-anchor {
+            fill: #fff;
+            stroke: var(--accent-color);
+            stroke-width: 2px;
+            cursor: move;
+            transition: fill 0.1s, stroke 0.1s;
+        }
+        .handle-anchor:hover {
+            fill: var(--accent-color);
+            stroke: #fff;
+        }
+
+        /* Circle Control (p1) */
+        .handle-control {
+            fill: var(--control-color); 
+            stroke: #fff;
+            stroke-width: 2px;
+            cursor: grab;
+            transition: r 0.1s;
+        }
+        .handle-control:hover {
+            r: 8;
+        }
+        .handle-control:active {
+            cursor: grabbing;
+        }
+
+        .handle-line {
+            stroke: var(--control-color);
+            stroke-width: 1.5;
+            stroke-dasharray: 4, 3;
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .path-mover-group {
+            cursor: grab;
+        }
+        .path-mover-group:active {
+            cursor: grabbing;
+        }
+        .cross-line {
+            stroke: var(--accent-color);
+            stroke-width: 3;
+            stroke-linecap: round;
+            pointer-events: none;
+        }
+        .cross-hitbox {
+            fill: transparent;
+            stroke: transparent;
+        }
+        .path-mover-group:hover .cross-line {
+            stroke: #fff;
+            stroke-width: 4;
+            filter: drop-shadow(0 0 4px var(--accent-color));
+        }
+
+        .toolbar {
+            position: absolute;
+            top: 20px;
+            left: 20px; 
+            width: var(--toolbar-width);
+            background-color: var(--panel-bg);
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            border: 1px solid var(--border-color);
+            z-index: 10; 
+            transition: opacity 0.2s ease, transform 0.2s ease,
+                        left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), 
+                        right 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        .toolbar.toolbar-right {
+            left: auto;
+            right: 20px;
+        }
+
+        .toolbar.minimized {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-10px);
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: color 0.2s, background 0.2s;
+        }
+        .close-btn:hover {
+            color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .toolbar-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toolbar-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .side-by-side {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .side-by-side > div {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .side-by-side > div label {
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: #3e3e4a;
+            color: var(--text-color);
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        button:hover {
+            background-color: #50505e;
+        }
+
+        button.active {
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 0 10px rgba(74, 144, 226, 0.4);
+        }
+
+        button.danger {
+            background-color: rgba(231, 76, 60, 0.15);
+            color: var(--danger-color);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
+
+        button.danger:hover {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        button.export-btn {
+            background-color: #27ae60;
+            color: white;
+            font-weight: 600;
+        }
+        button.export-btn:hover {
+            background-color: #219150;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 36px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+            border-radius: 4px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: var(--accent-color);
+        }
+        
+        .value-display {
+            color: var(--accent-color);
+            font-weight: normal;
+        }
+
+        .status-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-top: 8px;
+            line-height: 1.4;
+            border-top: 1px solid var(--border-color);
+            padding-top: 10px;
+            background: rgba(0,0,0,0.2);
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        .kbd {
+            background: #444;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #fff;
+            font-size: 0.9em;
+        }
+
+        #fab {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 5;
+            transition: left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), 
+                        right 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                        transform 0.2s, opacity 0.2s;
+            pointer-events: none;
+            opacity: 0;
+            transform: scale(0.8);
+        }
+
+        #fab.visible {
+            pointer-events: auto;
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        #fab:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        #fab.fab-right {
+            left: auto;
+            right: 20px;
+        }
+
+        #fab svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+
+    </style>
+</head>
+<body class="mode-select">
+
+    <div id="app">
+        <div id="bg-layer"></div>
+
+        <div id="fab" title="Open Toolbar"></div>
+
+        <nav class="toolbar" id="toolbar">
+            <button class="close-btn" id="btn-close-toolbar" title="Minimize Toolbar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">Tools</div>
+                <div class="button-row">
+                    <button id="btn-draw">Draw</button>
+                    <button id="btn-select" class="active">Select / Edit</button>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="side-by-side">
+                    <div>
+                        <label for="stroke-color">Stroke Color</label>
+                        <input type="color" id="stroke-color" value="#4a90e2">
+                    </div>
+                    <div>
+                        <label for="fill-color">Fill Color</label>
+                        <input type="color" id="fill-color" value="#ffffff">
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="side-by-side">
+                    <div>
+                        <label for="stroke-opacity">Stroke Opacity</label>
+                        <input type="range" id="stroke-opacity" min="0" max="1" step="0.1" value="1">
+                    </div>
+                    <div>
+                        <label for="fill-opacity">Fill Opacity</label>
+                        <input type="range" id="fill-opacity" min="0" max="1" step="0.1" value="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">
+                    <span>Stroke Width</span>
+                    <span id="width-val" class="value-display">4px</span>
+                </div>
+                <input type="range" id="width-slider" min="1" max="100" value="4">
+            </div>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">Actions</div>
+                <button id="btn-export" class="export-btn">Export SVG</button>
+                <button id="btn-delete-selected" class="danger" style="display: none;">Delete Selected</button>
+                <button id="btn-clear">Clear All</button>
+            </div>
+            
+            <div class="status-text" id="status-text">
+                <b>Select Mode:</b> Click to select.<br>
+                Drag <span style="color:var(--accent-color)">Squares</span> to move anchors.<br>
+                Drag <span style="color:var(--control-color)">Circle</span> to bend curve.<br>
+            </div>
+        </nav>
+
+        <svg id="canvas">
+            <defs>
+                <filter id="glow">
+                    <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+                    <feMerge>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+            <g id="layer-paths"></g>
+            <g id="layer-handles"></g>
+        </svg>
+    </div>
+
+    <script>
+        "use strict";
+        
+        const AppState = {
+            mode: 'select', 
+            isDrawing: false,
+            isDraggingHandle: false,
+            isDraggingPath: false,
+            currentPathIndex: -1,
+            selectedPathIndex: -1,
+            activeHandle: null, // { type: 'p0'|'p1'|'p2' }
+            dragStartMouse: { x: 0, y: 0 },
+            paths: [], 
+            rawPoints: [], // Temp buffer for drawing
+            styles: {
+                strokeColor: '#4a90e2',
+                fillColor: '#ffffff',
+                strokeOpacity: 1.0,
+                fillOpacity: 0.0, 
+                width: 4,
+                drawThreshold: 30
+            },
+            toolbarState: {
+                isLeft: true,
+                isToolbarOpen: true,
+                bufferDistance: 40
+            }
+        };
+
+        const History = {
+            undoStack: [],
+            redoStack: [],
+            limit: 50
+        };
+
+        const UI = {
+            app: document.getElementById('app'),
+            bgLayer: document.getElementById('bg-layer'),
+            canvas: document.getElementById('canvas'),
+            layerPaths: document.getElementById('layer-paths'),
+            layerHandles: document.getElementById('layer-handles'),
+            toolbar: document.getElementById('toolbar'),
+            fab: document.getElementById('fab'),
+            btnDraw: document.getElementById('btn-draw'),
+            btnSelect: document.getElementById('btn-select'),
+            btnExport: document.getElementById('btn-export'),
+            btnDelete: document.getElementById('btn-delete-selected'),
+            btnClear: document.getElementById('btn-clear'),
+            btnCloseToolbar: document.getElementById('btn-close-toolbar'),
+            strokeColor: document.getElementById('stroke-color'),
+            fillColor: document.getElementById('fill-color'),
+            strokeOpacity: document.getElementById('stroke-opacity'),
+            fillOpacity: document.getElementById('fill-opacity'),
+            widthSlider: document.getElementById('width-slider'),
+            widthVal: document.getElementById('width-val'),
+            statusText: document.getElementById('status-text'),
+            body: document.body
+        };
+
+        const Icons = {
+            draw: `<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`,
+            select: `<svg viewBox="0 0 24 24"><path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4-4.4 4.6z"/></svg>`
+        };
+
+        function saveState() {
+            const snapshot = JSON.parse(JSON.stringify(AppState.paths));
+            History.undoStack.push(snapshot);
+            if (History.undoStack.length > History.limit) History.undoStack.shift();
+            History.redoStack = []; 
+        }
+
+        function undo() {
+            if (AppState.isDrawing) {
+                AppState.isDrawing = false;
+                AppState.rawPoints = [];
+                const currentEl = UI.layerPaths.lastElementChild;
+                if (currentEl) currentEl.remove();
+                AppState.currentPathIndex = -1;
+                return;
+            }
+            if (History.undoStack.length === 0) return;
+            History.redoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const previousState = History.undoStack.pop();
+            AppState.paths = previousState;
+            if (AppState.selectedPathIndex >= AppState.paths.length) selectPath(-1);
+            rebuildCanvas();
+        }
+
+        function redo() {
+            if (AppState.isDrawing) return;
+            if (History.redoStack.length === 0) return;
+            History.undoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const nextState = History.redoStack.pop();
+            AppState.paths = nextState;
+            if (AppState.selectedPathIndex >= AppState.paths.length) selectPath(-1);
+            rebuildCanvas();
+        }
+
+        function rebuildCanvas() {
+            UI.layerPaths.innerHTML = '';
+            UI.layerHandles.innerHTML = '';
+            AppState.paths.forEach((pathData, index) => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("class", "path-element");
+                pathEl.setAttribute("stroke", pathData.strokeColor);
+                pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("stroke-opacity", pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1);
+                pathEl.setAttribute("fill", pathData.fillColor);
+                pathEl.setAttribute("fill-opacity", pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0);
+                pathEl.setAttribute("stroke-linecap", "round");
+                pathEl.setAttribute("stroke-linejoin", "round");
+                pathEl.dataset.index = index;
+                UI.layerPaths.appendChild(pathEl);
+                updatePathD(index);
+            });
+            selectPath(AppState.selectedPathIndex);
+        }
+
+        function getSVGPoint(clientX, clientY) {
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = clientX;
+            pt.y = clientY;
+            return pt.matrixTransform(UI.canvas.getScreenCTM().inverse());
+        }
+
+        function setStatus(msg) {
+            UI.statusText.innerHTML = msg;
+        }
+
+        function checkToolbarProximity(clientX) {
+            if (AppState.mode !== 'draw') return;
+            const activeElement = AppState.toolbarState.isToolbarOpen ? UI.toolbar : UI.fab;
+            if (!AppState.toolbarState.isToolbarOpen && !UI.fab.classList.contains('visible')) return;
+            const rect = activeElement.getBoundingClientRect();
+            const buffer = AppState.toolbarState.bufferDistance; 
+
+            if (AppState.toolbarState.isLeft) {
+                if (clientX < (rect.right + buffer)) moveToolbarTo('right');
+            } else {
+                if (clientX > (rect.left - buffer)) moveToolbarTo('left');
+            }
+        }
+
+        function moveToolbarTo(side) {
+            if (side === 'right') {
+                AppState.toolbarState.isLeft = false;
+                UI.toolbar.classList.remove('toolbar-left');
+                UI.toolbar.classList.add('toolbar-right');
+                UI.fab.classList.remove('fab-left');
+                UI.fab.classList.add('fab-right');
+            } else {
+                AppState.toolbarState.isLeft = true;
+                UI.toolbar.classList.remove('toolbar-right');
+                UI.toolbar.classList.add('toolbar-left');
+                UI.fab.classList.remove('fab-right');
+                UI.fab.classList.add('fab-left');
+            }
+        }
+
+        function toggleToolbar() {
+            AppState.toolbarState.isToolbarOpen = !AppState.toolbarState.isToolbarOpen;
+            if (AppState.toolbarState.isToolbarOpen) {
+                UI.toolbar.classList.remove('minimized');
+                UI.fab.classList.remove('visible');
+                updateFABIcon(); 
+            } else {
+                UI.toolbar.classList.add('minimized');
+                UI.fab.classList.add('visible');
+            }
+        }
+
+        function updateFABIcon() {
+            UI.fab.innerHTML = AppState.mode === 'draw' ? Icons.draw : Icons.select;
+        }
+
+        // --- Drawing Logic (Freehand -> Single Curve) ---
+
+        function startDrawing(x, y) {
+            AppState.isDrawing = true;
+            AppState.rawPoints = [{ x, y }];
+            
+            const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            pathEl.setAttribute("class", "path-element");
+            pathEl.setAttribute("stroke", AppState.styles.strokeColor);
+            pathEl.setAttribute("fill", AppState.styles.fillColor);
+            pathEl.setAttribute("stroke-width", AppState.styles.width);
+            pathEl.setAttribute("stroke-opacity", AppState.styles.strokeOpacity);
+            pathEl.setAttribute("fill-opacity", AppState.styles.fillOpacity);
+            pathEl.setAttribute("stroke-linecap", "round");
+            pathEl.setAttribute("stroke-linejoin", "round");
+            pathEl.dataset.index = AppState.paths.length;
+            UI.layerPaths.appendChild(pathEl);
+        }
+
+        function drawMove(x, y) {
+            if (!AppState.isDrawing) return;
+            const lastPoint = AppState.rawPoints[AppState.rawPoints.length - 1];
+            const dist = Math.hypot(x - lastPoint.x, y - lastPoint.y);
+            
+            if (dist > AppState.styles.drawThreshold) {
+                AppState.rawPoints.push({ x, y });
+                
+                // Live preview as polyline
+                const d = AppState.rawPoints.reduce((acc, p, i) => {
+                    return acc + (i === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : ` L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`);
+                }, "");
+                const pathEl = UI.layerPaths.lastElementChild;
+                if (pathEl) pathEl.setAttribute("d", d);
+            }
+        }
+
+        function stopDrawing() {
+            if (!AppState.isDrawing) return;
+            AppState.isDrawing = false;
+            
+            const pathEl = UI.layerPaths.lastElementChild;
+            
+            if (AppState.rawPoints.length > 1) {
+                // Convert raw polyline to SINGLE Bezier Curve
+                const curve = calculateSingleBezier(AppState.rawPoints);
+                
+                const newPath = {
+                    strokeColor: AppState.styles.strokeColor,
+                    fillColor: AppState.styles.fillColor,
+                    strokeOpacity: AppState.styles.strokeOpacity,
+                    fillOpacity: AppState.styles.fillOpacity,
+                    width: parseInt(AppState.styles.width),
+                    p0: curve.p0,
+                    p1: curve.p1,
+                    p2: curve.p2
+                };
+                
+                AppState.paths.push(newPath);
+                AppState.currentPathIndex = AppState.paths.length - 1;
+                
+                // Render as curve
+                updatePathD(AppState.currentPathIndex);
+                saveState();
+            } else {
+                if(pathEl) pathEl.remove();
+            }
+            AppState.rawPoints = [];
+        }
+
+        // Math to approximate freehand stroke as one Quadratic Bezier
+        function calculateSingleBezier(points) {
+            // 1. P0 is the first point
+            const p0 = points[0];
+            // 2. P2 is the last point
+            const p2 = points[points.length - 1];
+            
+            // 3. Find P1 (Control Point)
+            // Heuristic: Find the point furthest from the straight line P0 -> P2
+            let maxDist = -1;
+            let p1 = { x: (p0.x + p2.x)/2, y: (p0.y + p2.y)/2 }; // Fallback to midpoint
+
+            for (let i = 1; i < points.length - 1; i++) {
+                const p = points[i];
+                const dist = distToSegmentSquared(p, p0, p2);
+                if (dist > maxDist) {
+                    maxDist = dist;
+                    p1 = p;
+                }
+            }
+            return { p0, p1, p2 };
+        }
+
+        function distToSegmentSquared(p, v, w) {
+            const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
+            if (l2 == 0) return (p.x - v.x)**2 + (p.y - v.y)**2;
+            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return (p.x - (v.x + t * (w.x - v.x)))**2 + (p.y - (v.y + t * (w.y - v.y)))**2;
+        }
+
+        function updatePathD(index) {
+            const pathData = AppState.paths[index];
+            if (!pathData) return;
+            
+            // Simple Quadratic Bezier: M P0 Q P1 P2
+            const d = `M ${pathData.p0.x.toFixed(1)} ${pathData.p0.y.toFixed(1)} Q ${pathData.p1.x.toFixed(1)} ${pathData.p1.y.toFixed(1)} ${pathData.p2.x.toFixed(1)} ${pathData.p2.y.toFixed(1)}`;
+
+            const pathEl = UI.layerPaths.children[index];
+            if (pathEl) pathEl.setAttribute("d", d);
+        }
+
+        // --- Selection / Editing Logic ---
+
+        function selectPath(index) {
+            if (AppState.selectedPathIndex !== -1) {
+                const prevEl = UI.layerPaths.children[AppState.selectedPathIndex];
+                if (prevEl) prevEl.style.filter = "none";
+            }
+            AppState.selectedPathIndex = index;
+
+            if (index !== -1) {
+                const pathEl = UI.layerPaths.children[index];
+                const pathData = AppState.paths[index];
+                pathEl.style.filter = "url(#glow)";
+                
+                UI.widthSlider.value = pathData.width;
+                UI.widthVal.textContent = pathData.width + "px";
+                UI.strokeColor.value = pathData.strokeColor;
+                UI.fillColor.value = pathData.fillColor;
+                UI.strokeOpacity.value = pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1;
+                UI.fillOpacity.value = pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0;
+
+                UI.btnDelete.style.display = "block";
+                setStatus("Selected. Drag <span style='color:var(--accent-color)'>Squares</span> to move, <span style='color:var(--control-color)'>Circle</span> to bend.");
+                renderHandles(index);
+            } else {
+                UI.widthSlider.value = AppState.styles.width;
+                UI.widthVal.textContent = AppState.styles.width + "px";
+                UI.strokeColor.value = AppState.styles.strokeColor;
+                UI.fillColor.value = AppState.styles.fillColor;
+                UI.strokeOpacity.value = AppState.styles.strokeOpacity;
+                UI.fillOpacity.value = AppState.styles.fillOpacity;
+                UI.btnDelete.style.display = "none";
+                setStatus("Select Mode. Click a path to select.");
+                clearHandles();
+            }
+        }
+
+        function clearHandles() {
+            UI.layerHandles.innerHTML = '';
+        }
+
+        function calculatePathTopLeft(pathData) {
+            const points = [pathData.p0, pathData.p1, pathData.p2];
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            points.forEach(p => {
+                if(p.x < minX) minX = p.x;
+                if(p.y < minY) minY = p.y;
+                if(p.x > maxX) maxX = p.x;
+                if(p.y > maxY) maxY = p.y;
+            });
+            return { x: minX, y: minY };
+        }
+
+        function renderHandles(index) {
+            clearHandles();
+            const pathData = AppState.paths[index];
+
+            // 1. Render Handles
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            g.setAttribute("class", "handle-group");
+            
+            // Lines
+            const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line1.setAttribute("x1", pathData.p0.x); line1.setAttribute("y1", pathData.p0.y);
+            line1.setAttribute("x2", pathData.p1.x); line1.setAttribute("y2", pathData.p1.y);
+            line1.setAttribute("class", "handle-line");
+
+            const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line2.setAttribute("x1", pathData.p1.x); line2.setAttribute("y1", pathData.p1.y);
+            line2.setAttribute("x2", pathData.p2.x); line2.setAttribute("y2", pathData.p2.y);
+            line2.setAttribute("class", "handle-line");
+
+            // Anchors
+            const p0Handle = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            p0Handle.setAttribute("x", pathData.p0.x - 4); p0Handle.setAttribute("y", pathData.p0.y - 4);
+            p0Handle.setAttribute("width", 8); p0Handle.setAttribute("height", 8);
+            p0Handle.setAttribute("class", "handle-anchor");
+
+            const p2Handle = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            p2Handle.setAttribute("x", pathData.p2.x - 4); p2Handle.setAttribute("y", pathData.p2.y - 4);
+            p2Handle.setAttribute("width", 8); p2Handle.setAttribute("height", 8);
+            p2Handle.setAttribute("class", "handle-anchor");
+
+            // Control
+            const p1Handle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            p1Handle.setAttribute("cx", pathData.p1.x); p1Handle.setAttribute("cy", pathData.p1.y);
+            p1Handle.setAttribute("r", 5);
+            p1Handle.setAttribute("class", "handle-control");
+
+            // Events
+            p0Handle.addEventListener('mousedown', (e) => startDraggingHandle(e, 'p0'));
+            p2Handle.addEventListener('mousedown', (e) => startDraggingHandle(e, 'p2'));
+            p1Handle.addEventListener('mousedown', (e) => startDraggingHandle(e, 'p1'));
+
+            g.appendChild(line1);
+            g.appendChild(line2);
+            g.appendChild(p0Handle);
+            g.appendChild(p2Handle);
+            g.appendChild(p1Handle);
+            
+            UI.layerHandles.appendChild(g);
+
+            // 2. Path Mover
+            const topLeft = calculatePathTopLeft(pathData);
+            const moverGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            moverGroup.setAttribute("transform", `translate(${topLeft.x}, ${topLeft.y})`);
+            moverGroup.setAttribute("class", "path-mover-group");
+            
+            const size = 10;
+            const hLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            hLine.setAttribute("x1", -size); hLine.setAttribute("y1", 0);
+            hLine.setAttribute("x2", size); hLine.setAttribute("y2", 0);
+            hLine.setAttribute("class", "cross-line");
+
+            const vLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            vLine.setAttribute("x1", 0); vLine.setAttribute("y1", -size);
+            vLine.setAttribute("x2", 0); vLine.setAttribute("y2", size);
+            vLine.setAttribute("class", "cross-line");
+            
+            const hitbox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            hitbox.setAttribute("x", -size); hitbox.setAttribute("y", -size);
+            hitbox.setAttribute("width", size*2); hitbox.setAttribute("height", size*2);
+            hitbox.setAttribute("class", "cross-hitbox");
+
+            moverGroup.appendChild(hLine);
+            moverGroup.appendChild(vLine);
+            moverGroup.appendChild(hitbox);
+            moverGroup.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                startDraggingPath(e, index);
+            });
+            UI.layerHandles.appendChild(moverGroup);
+        }
+
+        function startDraggingHandle(e, type) {
+            if (AppState.mode !== 'select') return;
+            e.stopPropagation();
+            AppState.isDraggingHandle = true;
+            AppState.activeHandle = type;
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+        }
+
+        function startDraggingPath(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            AppState.isDraggingPath = true;
+            AppState.selectedPathIndex = pathIndex; 
+            selectPath(pathIndex); 
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+        }
+
+        function processDrag(x, y) {
+            if (AppState.isDraggingHandle) {
+                const type = AppState.activeHandle;
+                const pathData = AppState.paths[AppState.selectedPathIndex];
+                
+                pathData[type] = { x, y };
+
+                updatePathD(AppState.selectedPathIndex);
+                renderHandles(AppState.selectedPathIndex); 
+                
+            } else if (AppState.isDraggingPath) {
+                const dx = x - AppState.dragStartMouse.x;
+                const dy = y - AppState.dragStartMouse.y;
+                const pathData = AppState.paths[AppState.selectedPathIndex];
+                
+                pathData.p0 = { x: pathData.p0.x + dx, y: pathData.p0.y + dy };
+                pathData.p1 = { x: pathData.p1.x + dx, y: pathData.p1.y + dy };
+                pathData.p2 = { x: pathData.p2.x + dx, y: pathData.p2.y + dy };
+
+                AppState.dragStartMouse = { x, y }; 
+                updatePathD(AppState.selectedPathIndex);
+                renderHandles(AppState.selectedPathIndex);
+            }
+        }
+
+        function stopDrag() {
+            if (AppState.isDraggingHandle || AppState.isDraggingPath) {
+                AppState.isDraggingHandle = false;
+                AppState.isDraggingPath = false;
+                AppState.activeHandle = null;
+                saveState();
+            }
+        }
+
+        // --- Event Listeners ---
+
+        UI.btnDraw.addEventListener('click', () => setMode('draw'));
+        UI.btnSelect.addEventListener('click', () => setMode('select'));
+        UI.btnCloseToolbar.addEventListener('click', toggleToolbar);
+        UI.fab.addEventListener('click', toggleToolbar);
+
+        function setMode(newMode) {
+            AppState.mode = newMode;
+            if (newMode === 'draw') {
+                UI.body.className = 'mode-draw';
+                UI.btnDraw.classList.add('active');
+                UI.btnSelect.classList.remove('active');
+                selectPath(-1); 
+                setStatus("<b>Draw Mode:</b> Sketch freely. Each stroke creates one curve.");
+            } else {
+                stopDrawing(); 
+                UI.body.className = 'mode-select';
+                UI.btnSelect.classList.add('active');
+                UI.btnDraw.classList.remove('active');
+                setStatus("<b>Select Mode:</b> Static toolbar. Drag handles to edit curves.");
+            }
+            updateFABIcon();
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            checkToolbarProximity(e.clientX); 
+
+            if (AppState.mode === 'draw') {
+                if (!AppState.isDrawing) {
+                    startDrawing(pt.x, pt.y);
+                } else {
+                    drawMove(pt.x, pt.y);
+                }
+            } else {
+                if (AppState.isDraggingHandle || AppState.isDraggingPath) {
+                    processDrag(pt.x, pt.y);
+                }
+            }
+        });
+
+        UI.canvas.addEventListener('mousedown', (e) => {
+            if (AppState.mode === 'select') {
+                if (e.target.classList.contains('path-element')) {
+                    const index = parseInt(e.target.dataset.index);
+                    selectPath(index);
+                } else if (e.target.tagName !== 'rect' && e.target.tagName !== 'circle' && !e.target.closest('.path-mover-group') && !e.target.closest('.handle-group')) {
+                    selectPath(-1);
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (AppState.mode === 'draw') {
+                stopDrawing();
+            } else {
+                stopDrag();
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (e.code === 'Space') {
+                e.preventDefault();
+                setMode(AppState.mode === 'draw' ? 'select' : 'draw');
+                return;
+            }
+            if (key === 'x') { toggleToolbar(); return; }
+            if ((e.ctrlKey || e.metaKey) && key === 'z') undo();
+            else if ((e.ctrlKey || e.metaKey) && key === 'y') redo();
+            else if (key === 'z') undo();
+            else if (key === 'y') redo();
+            else if (key === 'delete' || key === 'backspace') {
+                if (AppState.selectedPathIndex !== -1) deleteSelectedPath();
+            }
+        });
+
+        function updateStyleProperty(key, value, isFloat = false) {
+            AppState.styles[key] = isFloat ? parseFloat(value) : value;
+            if (AppState.selectedPathIndex !== -1) {
+                const pathData = AppState.paths[AppState.selectedPathIndex];
+                pathData[key] = AppState.styles[key];
+                const pathEl = UI.layerPaths.children[AppState.selectedPathIndex];
+                if (pathEl) {
+                    if(key === 'strokeColor') pathEl.setAttribute("stroke", value);
+                    if(key === 'fillColor') pathEl.setAttribute("fill", value);
+                    if(key === 'width') pathEl.setAttribute("stroke-width", value);
+                    if(key === 'strokeOpacity') pathEl.setAttribute("stroke-opacity", value);
+                    if(key === 'fillOpacity') pathEl.setAttribute("fill-opacity", value);
+                }
+            }
+        }
+
+        UI.widthSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            updateStyleProperty('width', val);
+            UI.widthVal.textContent = val + "px";
+        });
+        UI.widthSlider.addEventListener('change', () => { if(AppState.selectedPathIndex !== -1) saveState(); });
+        UI.strokeColor.addEventListener('input', (e) => updateStyleProperty('strokeColor', e.target.value));
+        UI.strokeColor.addEventListener('change', () => { if(AppState.selectedPathIndex !== -1) saveState(); });
+        UI.fillColor.addEventListener('input', (e) => updateStyleProperty('fillColor', e.target.value));
+        UI.fillColor.addEventListener('change', () => { if(AppState.selectedPathIndex !== -1) saveState(); });
+        UI.strokeOpacity.addEventListener('input', (e) => updateStyleProperty('strokeOpacity', e.target.value, true));
+        UI.strokeOpacity.addEventListener('change', () => { if(AppState.selectedPathIndex !== -1) saveState(); });
+        UI.fillOpacity.addEventListener('input', (e) => updateStyleProperty('fillOpacity', e.target.value, true));
+        UI.fillOpacity.addEventListener('change', () => { if(AppState.selectedPathIndex !== -1) saveState(); });
+
+        function deleteSelectedPath() {
+            if (AppState.selectedPathIndex === -1) return;
+            saveState();
+            const pathEl = UI.layerPaths.children[AppState.selectedPathIndex];
+            if (pathEl) pathEl.remove();
+            AppState.paths.splice(AppState.selectedPathIndex, 1);
+            selectPath(-1);
+            clearHandles();
+            Array.from(UI.layerPaths.children).forEach((el, idx) => el.dataset.index = idx);
+        }
+        UI.btnDelete.addEventListener('click', deleteSelectedPath);
+
+        UI.btnClear.addEventListener('click', () => {
+            if(confirm("Clear entire canvas?")) {
+                saveState();
+                AppState.paths = [];
+                UI.layerPaths.innerHTML = '';
+                UI.layerHandles.innerHTML = '';
+                selectPath(-1);
+            }
+        });
+
+        // --- Export ---
+        UI.btnExport.addEventListener('click', () => {
+            if (AppState.paths.length === 0) return;
+            const svgContent = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svgContent.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svgContent.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
+            
+            AppState.paths.forEach(pathData => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("stroke", pathData.strokeColor);
+                pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("stroke-opacity", pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1);
+                pathEl.setAttribute("fill", pathData.fillColor);
+                pathEl.setAttribute("fill-opacity", pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0);
+                pathEl.setAttribute("stroke-linecap", "round");
+                pathEl.setAttribute("stroke-linejoin", "round");
+                
+                const d = `M ${pathData.p0.x.toFixed(1)} ${pathData.p0.y.toFixed(1)} Q ${pathData.p1.x.toFixed(1)} ${pathData.p1.y.toFixed(1)} ${pathData.p2.x.toFixed(1)} ${pathData.p2.y.toFixed(1)}`;
+                pathEl.setAttribute("d", d);
+                svgContent.appendChild(pathEl);
+            });
+
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(svgContent);
+            if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+                source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            }
+            if(!source.match(/^<svg[^>]+xmlns:xlink/)){
+                source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+            }
+
+            const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `slidus_curve_${Date.now()}.svg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        // --- Drag & Drop Background ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            UI.app.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        setMode('select');
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        UI.app.addEventListener('dragenter', () => document.body.classList.add('drag-over'));
+        UI.app.addEventListener('dragleave', (e) => {
+            if (e.relatedTarget && !UI.app.contains(e.relatedTarget)) {
+                document.body.classList.remove('drag-over');
+            }
+        });
+        UI.app.addEventListener('drop', (e) => {
+            document.body.classList.remove('drag-over');
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) handleFiles(files);
+        });
+
+        function handleFiles(files) {
+            const file = files[0];
+            if (!file.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onloadend = function() {
+                UI.bgLayer.style.backgroundImage = `url('${reader.result}')`;
+            }
+        }
+    </script>
+</body>
+</html>
