@@ -1,5 +1,5 @@
-# Slidus
-### [Sliding Stylus](https://hyperagon.github.io/projects/slidus/)
+# [Slidus](https://hyperagon.github.io/projects/slidus/)
+### Sliding Stylus
 
 ### Idea
 Stylus: https://en.wikipedia.org/wiki/Stylus_(computing)
